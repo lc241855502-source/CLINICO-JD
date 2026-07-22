@@ -66,12 +66,12 @@ with st.sidebar:
     st.subheader("🔑 API设置")
     api_mode = st.radio(
         "使用模式",
-        ["公司共享API", "自有API"],
+        ["Eddie提供API", "自有API"],
         horizontal=True,
         help="共享模式只需输入密钥最后3位，自有模式使用你自己的API"
     )
     
-    if api_mode == "公司共享API":
+    if api_mode == "Eddie提供API":
         api_url = SHARED_API_URL
         st.caption(f"API地址：{SHARED_API_URL}")
         
