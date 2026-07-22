@@ -84,18 +84,31 @@ def _fill_table_fields(doc, data):
                         break
                 
                 if matched_content:
-                    # 往下找内容框：跳过和当前单元格文本相同的合并行
-                    content_row = row_idx + 1
-                    while content_row < rows_count:
-                        next_cell = table.rows[content_row].cells[col_idx]
+                    # 往下找内容框：跳过所有标题合并行，找到第一个空内容单元格
+                    content_row = None
+                    for r in range(row_idx + 1, min(row_idx + 8, rows_count)):
+                        next_cell = table.rows[r].cells[col_idx]
                         next_text = next_cell.text.strip()
-                        # 如果下一行还是标题文字（合并单元格），继续往下找
-                        if next_text and next_text.lower()[:10] == cell_text.lower()[:10]:
-                            content_row += 1
-                        else:
+                        # 如果是空单元格，就是内容框了
+                        if not next_text:
+                            content_row = r
+                            break
+                        # 如果还包含标题关键词，说明还是合并的标题行，继续跳过
+                        still_title = False
+                        for kw in ['purpose', '岗位目的', 'task', '主要职责', '职责', 'qualification', '任职要求', '要求']:
+                            if kw.lower() in next_text.lower():
+                                still_title = True
+                                break
+                        if not still_title and len(next_text) < 10:
+                            # 内容很少，可能是占位符，也当作内容框
+                            content_row = r
                             break
                     
-                    if content_row < rows_count:
+                    # 兜底：如果没找到空的，就用第2行下面的
+                    if content_row is None and row_idx + 2 < rows_count:
+                        content_row = row_idx + 2
+                    
+                    if content_row is not None:
                         target_cell = table.rows[content_row].cells[col_idx]
                         
                         if matched_content == 'responsibilities':

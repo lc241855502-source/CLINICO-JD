@@ -246,42 +246,20 @@ with col2:
             
             # 生成Word（基于真实模板填充）
             docx_bytes = generate_jd_document(data_to_use, template_path)
-            
-            # 生成PDF
-            try:
-                pdf_bytes = docx_to_pdf(docx_bytes)
-                pdf_available = True
-            except Exception as e:
-                st.warning(f"PDF生成失败（需Windows+Office环境）: {str(e)[:50]}")
-                pdf_available = False
+            pdf_available = False  # 已移除PDF生成
         
         st.success("✅ 文档生成完成！格式与公司模板完全一致")
         
         # 下载按钮
         file_name = f"JD_{data_to_use.get('position_title', '岗位')}_{data_to_use.get('department', '')}"
         
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            st.download_button(
-                label="📥 下载 Word 版",
-                data=docx_bytes.getvalue(),
-                file_name=f"{file_name}.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
-        
-        with col_d2:
-            if pdf_available:
-                st.download_button(
-                    label="📥 下载 PDF 版",
-                    data=pdf_bytes.getvalue(),
-                    file_name=f"{file_name}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            else:
-                st.button("📥 下载 PDF 版", disabled=True, use_container_width=True, 
-                         help="PDF转换需要Windows环境且安装Microsoft Office")
+        st.download_button(
+            label="📥 下载 Word 版",
+            data=docx_bytes.getvalue(),
+            file_name=f"{file_name}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True
+        )
         
         # 内容预览
         with st.expander("文档内容预览", expanded=True):
