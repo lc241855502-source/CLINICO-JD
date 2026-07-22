@@ -26,11 +26,12 @@ def generate_jd_document(data, template_path):
     return output
 
 def _fill_table_fields(doc, data):
-    """填充表格中的字段，通过关键词匹配定位
-    包括基本信息字段和大段内容区域
+    """填充表格中的字段
+    短字段（基本信息）：填右边单元格
+    长内容（岗位目的/职责/任职要求）：填标题下方的白色内容框
     """
     
-    # 短字段映射：关键词 -> 数据字段名（填右边单元格）
+    # 短字段映射：左标签，填右边值
     short_field_mapping = [
         (['Position Title', '职务名称', '职位名称', '岗位名称'], 'position_title'),
         (['Department', '部门', '所属部门'], 'department'),
@@ -39,7 +40,7 @@ def _fill_table_fields(doc, data):
         (['Location', '工作地点', '地点'], 'location'),
     ]
     
-    # 长内容字段映射：关键词 -> 数据字段名（填下方单元格或同行剩余单元格）
+    # 长内容字段映射：上标题，填下方内容框
     content_field_mapping = [
         (['Position purpose', '岗位目的', '职位概述', 'Position Summary'], 'position_purpose'),
         (['Major tasks', '主要职责', '岗位职责', 'Responsibilities', '工作描述'], 'responsibilities'),
@@ -47,28 +48,32 @@ def _fill_table_fields(doc, data):
     ]
     
     for table in doc.tables:
+        rows_count = len(table.rows)
+        
         for row_idx, row in enumerate(table.rows):
             for col_idx, cell in enumerate(row.cells):
                 cell_text = cell.text.strip()
-                
-                # 1. 短字段：填右边格
-                matched_field = None
-                for keywords, field_name in short_field_mapping:
-                    for kw in keywords:
-                        if kw.lower() in cell_text.lower():
-                            matched_field = field_name
-                            break
-                    if matched_field:
-                        break
-                
-                if matched_field:
-                    value = data.get(matched_field, '')
-                    if value and col_idx + 1 < len(row.cells):
-                        target_cell = row.cells[col_idx + 1]
-                        _set_cell_text_preserve_style(target_cell, str(value))
+                if not cell_text:
                     continue
                 
-                # 2. 长内容字段：填下方单元格
+                # 1. 短字段：填右边格
+                matched_short = None
+                for keywords, field_name in short_field_mapping:
+                    for kw in keywords:
+                        if kw.lower() in cell_text.lower() and len(cell_text) < 30:
+                            matched_short = field_name
+                            break
+                    if matched_short:
+                        break
+                
+                if matched_short:
+                    value = data.get(matched_short, '')
+                    if value and col_idx + 1 < len(row.cells):
+                        target_cell = row.cells[col_idx + 1]
+                        _set_cell_content(target_cell, str(value))
+                    continue
+                
+                # 2. 长内容：往下找真正的内容框（跳过合并的标题行）
                 matched_content = None
                 for keywords, field_name in content_field_mapping:
                     for kw in keywords:
@@ -79,48 +84,102 @@ def _fill_table_fields(doc, data):
                         break
                 
                 if matched_content:
-                    # 找下方的单元格填内容
-                    if row_idx + 1 < len(table.rows):
-                        target_cell = table.rows[row_idx + 1].cells[col_idx]
+                    # 往下找内容框：跳过和当前单元格文本相同的合并行
+                    content_row = row_idx + 1
+                    while content_row < rows_count:
+                        next_cell = table.rows[content_row].cells[col_idx]
+                        next_text = next_cell.text.strip()
+                        # 如果下一行还是标题文字（合并单元格），继续往下找
+                        if next_text and next_text.lower()[:10] == cell_text.lower()[:10]:
+                            content_row += 1
+                        else:
+                            break
+                    
+                    if content_row < rows_count:
+                        target_cell = table.rows[content_row].cells[col_idx]
+                        
                         if matched_content == 'responsibilities':
                             resp = data.get('responsibilities', [])
-                            if isinstance(resp, list):
-                                resp_text = '\n'.join([f"• {r}" for r in resp])
-                            else:
-                                resp_text = str(resp)
-                            _set_cell_text_preserve_style(target_cell, resp_text)
+                            if isinstance(resp, str):
+                                resp = [line.strip('•- ').strip() for line in resp.split('\n') if line.strip()]
+                            _fill_cell_with_bullets(target_cell, resp)
+                        
                         elif matched_content == 'qualifications':
-                            parts = []
+                            items = []
                             if data.get('education'):
-                                parts.append(f"教育背景：{data['education']}")
+                                items.append(('教育背景：', data['education']))
                             if data.get('experience'):
-                                parts.append(f"工作经验：{data['experience']}")
+                                items.append(('工作经验：', data['experience']))
                             if data.get('skills'):
-                                parts.append(f"专业技能：{data['skills']}")
+                                items.append(('专业技能：', data['skills']))
                             if data.get('abilities'):
-                                parts.append(f"能力要求：{data['abilities']}")
-                            _set_cell_text_preserve_style(target_cell, '\n'.join(parts))
+                                items.append(('能力要求：', data['abilities']))
+                            _fill_cell_with_labeled_items(target_cell, items)
+                        
                         else:
                             value = data.get(matched_content, '')
                             if value:
-                                _set_cell_text_preserve_style(target_cell, str(value))
+                                _set_cell_content(target_cell, str(value))
 
-def _set_cell_text_preserve_style(cell, text):
-    """设置单元格文本，尽量保留原有样式"""
-    # 清空现有内容
-    for paragraph in cell.paragraphs:
-        for run in paragraph.runs:
-            run.text = ''
+def _set_cell_content(cell, text):
+    """设置单元格纯文本内容，清空原有内容，保留基础样式"""
+    # 清空所有段落
+    for p in cell.paragraphs:
+        p.clear()
     
-    # 如果有段落，在第一个段落设置文本
+    # 使用第一个段落写入文本
     if cell.paragraphs:
         para = cell.paragraphs[0]
-        if para.runs:
-            para.runs[0].text = text
-        else:
-            para.text = text
+        para.text = text
     else:
         cell.text = text
+
+def _fill_cell_with_bullets(cell, items):
+    """用项目符号列表填充单元格，美化格式"""
+    # 清空所有段落
+    for p in cell.paragraphs:
+        p.clear()
+    
+    if not items:
+        return
+    
+    # 第一条用第一个段落
+    first_para = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+    first_para.text = f"• {items[0]}"
+    first_para.paragraph_format.left_indent = Cm(0.3)
+    first_para.paragraph_format.space_after = Pt(2)
+    
+    # 其余条目新增段落
+    for item in items[1:]:
+        para = cell.add_paragraph()
+        para.text = f"• {item}"
+        para.paragraph_format.left_indent = Cm(0.3)
+        para.paragraph_format.space_after = Pt(2)
+
+def _fill_cell_with_labeled_items(cell, items):
+    """用带标签的条目填充单元格（如 教育背景：xxx）"""
+    # 清空所有段落
+    for p in cell.paragraphs:
+        p.clear()
+    
+    if not items:
+        return
+    
+    # 第一条
+    first_para = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+    label, value = items[0]
+    run = first_para.add_run(label)
+    run.bold = True
+    first_para.add_run(value)
+    first_para.paragraph_format.space_after = Pt(2)
+    
+    # 其余条目
+    for label, value in items[1:]:
+        para = cell.add_paragraph()
+        run = para.add_run(label)
+        run.bold = True
+        para.add_run(value)
+        para.paragraph_format.space_after = Pt(2)
 
 def _fill_paragraph_sections(doc, data):
     """填充段落部分：岗位目的、主要职责、任职要求
