@@ -36,19 +36,31 @@ def generate_jd_document(data, template_path):
     return out_buffer
 
 def _replace_placeholders_in_xml(xml_bytes, data):
-    """在XML内容中替换所有占位符"""
+    """在XML内容中替换所有占位符，并统一设置字体为思源黑体小四"""
     xml_str = xml_bytes.decode('utf-8')
-    
-    # 预处理：把被Word拆分成多个run的占位符合并
-    # Word经常把 {{xxx}} 拆成多个<w:r>节点，导致直接替换失败
-    xml_str = _merge_split_placeholders(xml_str)
     
     # 准备替换映射
     replacements = _build_replacements(data)
     
-    # 执行替换
+    # 定义统一字体样式的rPr（思源黑体 小四 = 12pt = 24半点）
+    font_rpr = '''<w:rPr><w:rFonts w:eastAsia="思源黑体" w:ascii="思源黑体" w:hAnsi="思源黑体"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>'''
+    
+    # 逐个替换占位符
     for placeholder, value in replacements.items():
-        xml_str = xml_str.replace(placeholder, _escape_xml(value))
+        if not value:
+            continue
+        
+        escaped_value = _escape_xml(value)
+        
+        # 模式1：占位符在一个完整的<w:r>里，有自己的rPr
+        # 找到包含占位符的run，替换rPr和文本内容
+        pattern = r'(<w:r>(?:<w:rPr>.*?</w:rPr>)?<w:t[^>]*>)' + re.escape(placeholder) + r'(</w:t></w:r>)'
+        replacement = r'<w:r>' + font_rpr + r'<w:t>' + escaped_value + r'</w:t></w:r>'
+        xml_str = re.sub(pattern, replacement, xml_str)
+        
+        # 模式2：简单文本替换（兜底）
+        if placeholder in xml_str:
+            xml_str = xml_str.replace(placeholder, escaped_value)
     
     return xml_str.encode('utf-8')
 
