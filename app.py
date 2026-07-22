@@ -156,8 +156,20 @@ with col2:
     if 'polished_data' not in st.session_state:
         st.session_state.polished_data = None
     
+    # 安全获取按钮变量（未上传文件时默认为False）
+    try:
+        _polish_btn = polish_button
+        _generate_btn = generate_button
+    except NameError:
+        _polish_btn = False
+        _generate_btn = False
+    
+    # 未上传文件时显示提示
+    if not uploaded_file:
+        st.info("👈 请先在左侧上传JD文件")
+    
     # 处理AI润色
-    if polish_button:
+    if _polish_btn:
         if not api_enabled or not api_key:
             st.warning("请先在侧边栏启用API并填写API Key")
         else:
@@ -184,7 +196,7 @@ with col2:
                     st.json(polished)
     
     # 生成文档
-    if generate_button or (polish_button and st.session_state.polished_data):
+    if _generate_btn or (_polish_btn and st.session_state.polished_data):
         data_to_use = st.session_state.polished_data if st.session_state.polished_data else {
             'position_title': position_title,
             'department': department,
