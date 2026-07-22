@@ -2,6 +2,7 @@ import streamlit as st
 import io
 import os
 import sys
+import tempfile
 
 # 添加工具包路径
 sys.path.append(os.path.dirname(__file__))
@@ -43,9 +44,6 @@ st.markdown("""
     h1, h2, h3 {
         color: #333333;
     }
-    .stSidebar [data-testid="stSidebarNav"] {
-        background-color: #FFFAEB;
-    }
     hr {
         border-color: #FABD00;
         opacity: 0.3;
@@ -53,12 +51,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# 模板文件路径
+DEFAULT_TEMPLATE = os.path.join(os.path.dirname(__file__), 'template', 'company_template.docx')
+
 # 侧边栏配置
 with st.sidebar:
     st.title("⚙️ 系统配置")
     
     st.subheader("API设置")
-    api_enabled = st.checkbox("启用AI润色补全", value=True)
+    api_enabled = st.checkbox("启用AI智能提取+润色", value=True)
     api_url = st.text_input(
         "API接口地址",
         value="https://api.deepseek.com/chat/completions",
@@ -75,18 +76,20 @@ with st.sidebar:
     st.subheader("模板设置")
     use_custom_template = st.checkbox("使用自定义模板", value=False)
     if use_custom_template:
-        custom_template = st.file_uploader(
+        custom_template_file = st.file_uploader(
             "上传公司JD模板 (.docx)",
             type=['docx'],
             help="上传带有公司完整样式的Word模板文件"
         )
+    else:
+        st.info("✅ 使用内置公司标准模板")
     
     st.divider()
-    st.caption("科林集团 HR数字化工具 v1.1")
+    st.caption("科林集团 HR数字化工具 v2.0")
 
 # 主界面
 st.title("📋 JD智能匹配生成系统")
-st.markdown("上传任意格式的岗位说明书，自动匹配公司标准模板，支持AI润色补全，一键导出DOC/PDF")
+st.markdown("上传任意格式的岗位说明书，AI智能提取字段，自动填充公司标准模板，一键导出DOC/PDF")
 
 col1, col2 = st.columns([1, 1])
 
@@ -97,6 +100,8 @@ with col1:
         type=['docx', 'pdf', 'pptx', 'txt'],
         help="拖拽或点击上传任意格式的JD文件"
     )
+    
+    extracted_fields = None
     
     if uploaded_file:
         st.success(f"✅ 已上传：{uploaded_file.name}")
@@ -109,45 +114,67 @@ with col1:
         with st.expander("查看原始文本", expanded=False):
             st.text_area("解析结果", raw_text, height=200, label_visibility="collapsed")
         
-        # 提取字段
-        with st.spinner("正在智能提取JD字段..."):
-            extracted_fields = extract_jd_fields(raw_text)
+        # AI智能提取字段
+        if api_enabled and api_key:
+            with st.spinner("🤖 AI正在智能提取JD字段..."):
+                extracted_fields = extract_jd_fields(raw_text, api_url, api_key)
+                st.success("✅ AI字段提取完成！")
+        else:
+            # 降级为正则提取
+            with st.spinner("正在提取JD字段..."):
+                extracted_fields = extract_jd_fields(raw_text)
+                st.info("ℹ️ 未配置API，使用基础提取模式")
         
         st.subheader("2. 字段确认与编辑")
-        st.caption("系统自动提取的字段，可手动修改后再生成")
+        st.caption("AI自动提取的字段，可手动修改后再生成")
         
-        with st.form("jd_editor_form"):
-            position_title = st.text_input("职位名称", value=extracted_fields['position_title'])
-            department = st.text_input("部门", value=extracted_fields['department'])
-            line_manager = st.text_input("直线经理", value=extracted_fields['line_manager'])
-            subordinate = st.text_input("下属", value=extracted_fields['subordinate'])
-            location = st.text_input("工作地点", value=extracted_fields['location'])
-            
-            position_purpose = st.text_area(
-                "岗位目的",
-                value=extracted_fields['position_purpose'],
-                height=80
-            )
-            
-            responsibilities = st.text_area(
-                "主要职责",
-                value=extracted_fields['responsibilities'],
-                height=150
-            )
-            
-            col_a, col_b = st.columns(2)
-            with col_a:
-                education = st.text_input("教育背景", value=extracted_fields['education'])
-                experience = st.text_input("工作经验", value=extracted_fields['experience'])
-            with col_b:
-                skills = st.text_input("专业技能", value=extracted_fields['skills'])
-                abilities = st.text_input("能力要求", value=extracted_fields['abilities'])
-            
-            submit_col1, submit_col2 = st.columns(2)
-            with submit_col1:
-                polish_button = st.form_submit_button("✨ AI润色补全", use_container_width=True)
-            with submit_col2:
-                generate_button = st.form_submit_button("📄 直接生成", use_container_width=True)
+        if extracted_fields:
+            with st.form("jd_editor_form"):
+                # 基本信息
+                position_title = st.text_input("职位名称", value=extracted_fields.get('position_title', ''))
+                department = st.text_input("部门", value=extracted_fields.get('department', ''))
+                line_manager = st.text_input("直线经理", value=extracted_fields.get('line_manager', ''))
+                subordinate = st.text_input("下属", value=extracted_fields.get('subordinate', ''))
+                location = st.text_input("工作地点", value=extracted_fields.get('location', ''))
+                
+                # 岗位目的
+                position_purpose = st.text_area(
+                    "岗位目的",
+                    value=extracted_fields.get('position_purpose', ''),
+                    height=80
+                )
+                
+                # 主要职责
+                resp_value = extracted_fields.get('responsibilities', '')
+                if isinstance(resp_value, list):
+                    resp_value = '\n'.join([f"• {r}" for r in resp_value])
+                responsibilities = st.text_area(
+                    "主要职责",
+                    value=resp_value,
+                    height=150
+                )
+                
+                # 任职要求
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    education = st.text_input("教育背景", value=extracted_fields.get('education', ''))
+                    experience = st.text_input("工作经验", value=extracted_fields.get('experience', ''))
+                with col_b:
+                    skills = st.text_input("专业技能", value=extracted_fields.get('skills', ''))
+                    abilities = st.text_input("能力要求", value=extracted_fields.get('abilities', ''))
+                
+                submit_col1, submit_col2 = st.columns(2)
+                with submit_col1:
+                    polish_button = st.form_submit_button("✨ AI润色优化", use_container_width=True)
+                with submit_col2:
+                    generate_button = st.form_submit_button("📄 直接生成", use_container_width=True)
+        else:
+            st.warning("字段提取失败，请检查文件格式")
+            polish_button = False
+            generate_button = False
+    else:
+        polish_button = False
+        generate_button = False
 
 with col2:
     st.subheader("3. 生成结果")
@@ -156,20 +183,12 @@ with col2:
     if 'polished_data' not in st.session_state:
         st.session_state.polished_data = None
     
-    # 安全获取按钮变量（未上传文件时默认为False）
-    try:
-        _polish_btn = polish_button
-        _generate_btn = generate_button
-    except NameError:
-        _polish_btn = False
-        _generate_btn = False
-    
     # 未上传文件时显示提示
     if not uploaded_file:
         st.info("👈 请先在左侧上传JD文件")
     
     # 处理AI润色
-    if _polish_btn:
+    if uploaded_file and polish_button:
         if not api_enabled or not api_key:
             st.warning("请先在侧边栏启用API并填写API Key")
         else:
@@ -196,7 +215,7 @@ with col2:
                     st.json(polished)
     
     # 生成文档
-    if _generate_btn or (_polish_btn and st.session_state.polished_data):
+    if uploaded_file and (generate_button or (polish_button and st.session_state.polished_data)):
         data_to_use = st.session_state.polished_data if st.session_state.polished_data else {
             'position_title': position_title,
             'department': department,
@@ -212,16 +231,20 @@ with col2:
         }
         
         with st.spinner("正在生成标准JD文档..."):
-            # 处理自定义模板
-            template_path = None
-            if use_custom_template and custom_template:
-                import tempfile
+            # 确定模板路径
+            template_path = DEFAULT_TEMPLATE
+            if use_custom_template and custom_template_file:
                 tmp = tempfile.NamedTemporaryFile(suffix='.docx', delete=False)
-                tmp.write(custom_template.getvalue())
+                tmp.write(custom_template_file.getvalue())
                 template_path = tmp.name
                 tmp.close()
             
-            # 生成Word
+            # 检查模板是否存在
+            if not os.path.exists(template_path):
+                st.error(f"模板文件不存在: {template_path}")
+                st.stop()
+            
+            # 生成Word（基于真实模板填充）
             docx_bytes = generate_jd_document(data_to_use, template_path)
             
             # 生成PDF
@@ -232,7 +255,7 @@ with col2:
                 st.warning(f"PDF生成失败（需Windows+Office环境）: {str(e)[:50]}")
                 pdf_available = False
         
-        st.success("✅ 文档生成完成！")
+        st.success("✅ 文档生成完成！格式与公司模板完全一致")
         
         # 下载按钮
         file_name = f"JD_{data_to_use.get('position_title', '岗位')}_{data_to_use.get('department', '')}"
@@ -286,6 +309,6 @@ with col2:
 st.divider()
 st.markdown("""
 <div style='text-align: center; color: #888; font-size: 12px;'>
-    科林集团人力资源部 | IQCIS价值观驱动 | 严格遵循公司标准模板规范
+    科林集团人力资源部 | IQCIS价值观驱动 | 基于公司标准模板生成
 </div>
 """, unsafe_allow_html=True)
