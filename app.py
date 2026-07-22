@@ -55,7 +55,7 @@ st.markdown("""
 DEFAULT_TEMPLATE = os.path.join(os.path.dirname(__file__), 'template', 'company_template.docx')
 
 # ========== 共享API配置（管理员修改此处） ==========
-SHARED_API_PREFIX = "sk-"          # 改为你的API Key前缀（除了最后3位）
+SHARED_API_PREFIX = "sk-4cbaca0eafef4e20b2850d4040a64"          # 改为你的API Key前缀（除了最后3位）
 SHARED_API_URL = "https://api.deepseek.com/chat/completions"
 # =================================================
 
