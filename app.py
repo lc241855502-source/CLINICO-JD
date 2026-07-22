@@ -54,22 +54,60 @@ st.markdown("""
 # 模板文件路径
 DEFAULT_TEMPLATE = os.path.join(os.path.dirname(__file__), 'template', 'company_template.docx')
 
+# ========== 共享API配置（管理员修改此处） ==========
+SHARED_API_PREFIX = "sk-"          # 改为你的API Key前缀（除了最后3位）
+SHARED_API_URL = "https://api.deepseek.com/chat/completions"
+# =================================================
+
 # 侧边栏配置
 with st.sidebar:
     st.title("⚙️ 系统配置")
     
-    st.subheader("API设置")
-    api_enabled = st.checkbox("启用AI智能提取+润色", value=True)
-    api_url = st.text_input(
-        "API接口地址",
-        value="https://api.deepseek.com/chat/completions",
-        help="兼容OpenAI格式的大模型API端点"
+    st.subheader("🔑 API设置")
+    api_mode = st.radio(
+        "使用模式",
+        ["公司共享API", "自有API"],
+        horizontal=True,
+        help="共享模式只需输入密钥最后3位，自有模式使用你自己的API"
     )
-    api_key = st.text_input(
-        "API Key",
-        type="password",
-        help="API密钥仅在当前会话使用，不会存储"
-    )
+    
+    if api_mode == "公司共享API":
+        api_url = SHARED_API_URL
+        st.caption(f"API地址：{SHARED_API_URL}")
+        
+        # 展示前缀 + 最后3位输入
+        mask_len = max(len(SHARED_API_PREFIX) - 6, 4)
+        masked_prefix = SHARED_API_PREFIX[:6] + "*" * mask_len + SHARED_API_PREFIX[-3:] if len(SHARED_API_PREFIX) > 10 else SHARED_API_PREFIX
+        
+        col_p, col_s = st.columns([3, 1])
+        with col_p:
+            st.text_input("API Key前缀", value=masked_prefix, disabled=True, label_visibility="collapsed")
+        with col_s:
+            api_suffix = st.text_input(
+                "最后3位",
+                max_chars=3,
+                placeholder="xxx",
+                label_visibility="collapsed"
+            )
+        
+        api_key = SHARED_API_PREFIX + api_suffix.strip() if api_suffix and len(api_suffix.strip()) == 3 else ""
+        api_enabled = bool(api_key)
+        
+        if not api_key:
+            st.info("💡 请输入API Key最后3位启用AI功能")
+    
+    else:  # 自有API模式
+        api_enabled = st.checkbox("启用AI智能提取+润色", value=False)
+        api_url = st.text_input(
+            "API接口地址",
+            value="https://api.deepseek.com/chat/completions",
+            help="兼容OpenAI格式的大模型API端点"
+        )
+        api_key = st.text_input(
+            "API Key",
+            type="password",
+            help="API密钥仅在当前会话使用，不会存储"
+        )
     
     st.divider()
     
@@ -85,7 +123,7 @@ with st.sidebar:
         st.info("✅ 使用内置公司标准模板")
     
     st.divider()
-    st.caption("科林集团 HR数字化工具 v2.0")
+    st.caption("科林集团 HR数字化工具 v3.0")
 
 # 主界面
 st.title("📋 JD智能匹配生成系统")
